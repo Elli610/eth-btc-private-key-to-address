@@ -1,11 +1,11 @@
 /*
-Get a Bitcoin P2PKH address from a private key (bigint)
+Get a Bitcoin P2PKH or P2WPKH address from a private key (bigint)
 */
-
 import * as crypto from 'crypto';
 import * as bs58 from 'bs58';
 import { Buffer } from 'buffer';
 import { ec as EC } from 'elliptic';
+import bech32 from 'bech32';
 
 // Initialize elliptic curve
 const ec = new EC('secp256k1');
@@ -13,6 +13,11 @@ const ec = new EC('secp256k1');
 enum BitcoinNetwork {
   MAINNET = 'mainnet',
   TESTNET = 'testnet',
+}
+
+enum BitcoinAddressType {
+  P2PKH = 'P2PKH', // Pay to public key hash
+  P2WPKH = 'P2WPKH', // Pay To Witness Public Key Hash
 }
 
 /**
@@ -37,7 +42,7 @@ function ripemd160(buffer: Buffer): Buffer {
  * 
  * @returns The Bitcoin P2PKH address as a string
  */
-export function getBitcoinAddress(privateKeyBigInt: BigInt, network: BitcoinNetwork): string {
+export function getP2PKHAddress(privateKeyBigInt: BigInt, network: BitcoinNetwork, type: BitcoinAddressType): string {
   const publicKey = Buffer.from(getPublicKeyFromPrivateKey(privateKeyBigInt), 'hex');
   const sha256Hash = sha256(publicKey);
   const ripemd160Hash = ripemd160(sha256Hash);
@@ -49,6 +54,30 @@ export function getBitcoinAddress(privateKeyBigInt: BigInt, network: BitcoinNetw
   return bs58.encode(binaryBitcoinAddress);
 }
 
+/**
+ * Get a Bitcoin P2WPKH address from a private key (bigint)
+ * 
+ * @param privateKeyBigInt - The private key as a BigInt
+ * @param network - The Bitcoin network to use (mainnet or testnet)
+ * @returns The Bitcoin P2WPKH address as a string
+ */
+export function getSegwitAddressFromPublicKey(publicKey: string, network: BitcoinNetwork): string {
+  const sha256Hash = sha256(Buffer.from(publicKey, 'hex'));
+  const ripemd160Hash = ripemd160(sha256Hash).toString('hex');
+  //bech32 
+  const bech32Words = bech32.toWords(Buffer.from(ripemd160Hash, "hex"));
+  const words = new Uint8Array([0, ...bech32Words]);
+  const prefix = network === BitcoinNetwork.MAINNET ? 'bc' : 'tb';
+  const address = bech32.encode(prefix, words);
+  return address;
+}
+
+export function getSegwitAddressFromPoint(point: [bigint, bigint], network: BitcoinNetwork): string {
+  const pubkey = ec.keyFromPublic({ x: point[0].toString(16), y: point[1].toString(16) }).getPublic();
+
+  const address = getSegwitAddressFromPublicKey(pubkey.encodeCompressed('hex'), network);
+  return address;
+}
 /**
  * Get the public key from a private key
  * 
@@ -63,11 +92,22 @@ export function getPublicKeyFromPrivateKey(privateKeyBigInt: BigInt): string {
 
   // Convert the public key to a hex string
   // Use 'encode' for uncompressed format, or 'encodeCompressed' for compressed
+  console.log("Public key: ", publicKey.encode('hex', false));
   return publicKey.encode('hex', false);
+}
+
+export function getBitcoinAddress(privateKeyBigInt: BigInt, network: BitcoinNetwork, type: BitcoinAddressType): string {
+  if (type === BitcoinAddressType.P2PKH) {
+    return getP2PKHAddress(privateKeyBigInt, network, type);
+  } else if (type === BitcoinAddressType.P2WPKH) {
+    return getSegwitAddress(privateKeyBigInt, network);
+  } else {
+    throw new Error("Invalid address type");
+  }
 }
 
 // usage
 const privateKeyBigInt = 0xa32b66568933c72251c8bbf077522f8c9c9bb967cffc8868906f5a9453018ffcn;
-const bitcoinAddress = getBitcoinAddress(privateKeyBigInt, BitcoinNetwork.TESTNET);
+const bitcoinAddress = getBitcoinAddress(privateKeyBigInt, BitcoinNetwork.TESTNET, BitcoinAddressType.P2WPKH);
 console.log("Bitcoin P2PKH address: ", bitcoinAddress);
 
